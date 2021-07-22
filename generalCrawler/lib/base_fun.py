@@ -10,7 +10,8 @@ def init_logger():
     '''
     日志
     '''
-    base_logger.add(os.path.join('/data/logs', 'spider_info_{time:YYYY-MM-DD}.log'),
+    base_path = os.path.join(os.getcwd(), 'logs')
+    base_logger.add(os.path.join(base_path, 'spider_info_{time:YYYY-MM-DD}.log'),
                     format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {file.path} | {module} | {function} | {line} | {message}",
                     level="INFO", rotation="00:00", retention='6 days', enqueue=True, encoding='utf-8')
     base_logger.add(os.path.join('/data/logs', 'spider_error_{time:YYYY-MM-DD}.log'),

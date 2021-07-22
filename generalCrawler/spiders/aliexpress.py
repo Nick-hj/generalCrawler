@@ -8,31 +8,32 @@ from copy import deepcopy
 import xlrd
 import os
 from generalCrawler.lib.base_fun import logger
-from scrapy.utils.project import get_project_settings
-settings = get_project_settings()
+
 # settings["MYSQL_HOST"]
 
 # class ProductsSpider(scrapy.Spider):
-class AliexpressSpider(scrapy.Spider):
+class AliexpressSpider(RedisSpider):
     name = 'aliexpress'
-    allowed_domains = ['aliexpress.com','aeproductsourcesite.alicdn.com']
-    start_urls = ['http://aliexpress.com/']
+    allowed_domains = ['aliexpress.com', 'alicdn.com']
+    # start_urls = ['https://www.aliexpress.com/item/1005002104052559.html']
     redis_key = 'aliexpress_url'
     scheme = 'https:'
 
     def parse(self, response):
+        url = response.url
+        item = {}
+        item['success'] = False
+        item['url'] = response.url
         try:
             _data = re.findall(r'data:(.*),.*csrfToken:', response.text, re.S)[0]
             data = json.loads(_data)
             if data:
-                item = {}
                 item['category'] = self.category(data)
                 item['commentNumber'] = self.review(data)
                 item['createTime'] = None
                 item['deleteSkuIds'] = []
                 item['description'] = ''
                 item['detailUrl'] = self.detail_url(data)
-                item['detailsImgs'], item['document'] = self.parse_desc(item['detailUrl'])
                 item['goodsCreateTime'] = ''
                 item['goodsExtDetailId'] = 0
                 item['goodsImages'] = self.images(data)
@@ -78,48 +79,38 @@ class AliexpressSpider(scrapy.Spider):
                 item['type'] = 0
                 item['updatePrice'] = True
                 item['updateSkuPrice'] = True
-                item['url'] = None
                 item['weight'] = None
                 item['years'] = self.opened_year(data)
                 item['shippingFrom'] = self.shipping_from(data)
                 item['keywords'] = self.keywords(data)
                 item['ownerMemberId'] = self.seller_admin_seq(data)
                 item['isActivity'] = self.is_activity(data)
-                # item['orderReviews'] = Reviews().crawl_reviews(ali_id, self.seller_admin_seq(data))
-                self.goods_data['code'] = True
-                self.goods_data['item'] = item
-                # 评论
-                ae_reviews_id = {
-                    'product_id': item["productId"],
-                    'owner_member_id': self.seller_admin_seq(data)
-                }
-                self.redis_conn.lpush('ae_reviews_id', json.dumps(ae_reviews_id))
-                goods_data_dict = json.dumps(self.goods_data, ensure_ascii=False)
-                self.redis_conn.lpush(settings.SAVE_GOODS_TO_REDIS_KEY, goods_data_dict)
-                logger.info(f'爬取成功： {self.url}')
+                item['success'] = True
+                desc_url = item['detailUrl']
+                if desc_url:
+                    yield scrapy.Request(
+                        url=desc_url,
+                        callback=self.parse_desc,
+                        meta={'item': deepcopy(item)},
+                        dont_filter=True
+                    )
+                else:
+                    logger.error(f'失败===={item["url"]}')
+                    yield item
             else:
-                self.redis_conn.rpush('aliexpress_url', self.url)
-                logger.error(f'失败url:   {self.url}')
+                # self.redis_conn.rpush('aliexpress_url', self.url)
+                yield item
         except Exception as e:
-            logger.error(f'失败url:   {self.url} ==== {e}')
-            self.redis_conn.rpush('aliexpress_url', self.url)
-
-
-        return self.goods_data
-    def is_activity(self, data):
-        try:
-            _is_show_banner = data['middleBannerModule']['showUniformBanner']
-        except Exception as e:
-            _is_show_banner = False
-        return _is_show_banner
+            logger.error(f'失败===={item["url"]}===={e}')
+            yield item
 
     @logger.catch()
-    def parse_desc(self, desc_url):
+    def parse_desc(self, response):
         '''
         详情
         '''
-        path = re.search(r'\.com(.*)', desc_url).group(1)
-        response_text = request_get(desc_url)
+        item = response.meta['item']
+        response_text = response.text
         # 详情图片
         text2 = re.sub('<table.*?table>', '', response_text, re.S)
         text3 = re.sub(r'<a.*?</a>', '', text2, re.S)
@@ -138,7 +129,17 @@ class AliexpressSpider(scrapy.Spider):
             # table = [re.sub(r'[\r\t\n]+', '', i) for i in table]
             # table = ';'.join([i for i in table if i and i != ' '])
             # goods_data['item']['description'] = table
-        return img_desc, response_text
+        item['detailsImgs'] = img_desc
+        item['document'] = response_text
+        yield item
+
+    @staticmethod
+    def is_activity(data):
+        try:
+            _is_show_banner = data['middleBannerModule']['showUniformBanner']
+        except Exception as e:
+            _is_show_banner = False
+        return _is_show_banner
 
     @staticmethod
     def seller_admin_seq(data):
@@ -153,7 +154,10 @@ class AliexpressSpider(scrapy.Spider):
         '''
         详情url
         '''
-        return data['descriptionModule']['descriptionUrl']
+        try:
+            return data['descriptionModule']['descriptionUrl']
+        except KeyError as e:
+            return None
 
     @staticmethod
     def category(data):
@@ -567,4 +571,3 @@ class AliexpressSpider(scrapy.Spider):
             sku_dict['skuId'] = sku['skuId']
             sku_list.append(sku_dict)
         return sku_list
-

@@ -109,8 +109,8 @@ class ProxyAbuyunMiddlewear(object):
         self.proxyServer = "http://http-dyn.abuyun.com:9020"
 
         # 代理隧道验证信息
-        self.proxyUser = "HQ86512757H93UVD"
-        self.proxyPass = "711B84DE972CA59A"
+        self.proxyUser = "H717LC156ODVT6PD"
+        self.proxyPass = "699FCAD95124A16A"
 
         # for Python2
         # proxyAuth = "Basic " + base64.b64encode(proxyUser + ":" + proxyPass)
